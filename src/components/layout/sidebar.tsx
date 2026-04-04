@@ -3,177 +3,38 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-const navItems = [
-  { name: 'Dashboard', href: '/dashboard' },
-  { name: 'Reports', href: '/dashboard/reports' },
-  { name: 'Branches', href: '/dashboard/branches' },
-  { name: 'Partners', href: '/dashboard/partners' },
-  { name: 'Upload', href: '/dashboard/upload' },
+const links = [
+  { href: '/dashboard', label: 'Dashboard' },
+  { href: '/upload', label: 'Upload CSV' },
+  { href: '/branches', label: 'Branches' },
+  { href: '/partners', label: 'Partners' },
+  { href: '/reports', label: 'Reports' },
 ]
 
 export function Sidebar() {
   const pathname = usePathname()
 
   return (
-    <aside className="w-64 bg-surface-i½0 border-r h>
-      <nav className="space-y-8" space="y-8">
-        {navItems.map((item) => (
+    <aside className="w-64 min-h-screen bg-zinc-900 border-r border-zinc-800 p-6">
+      <div className="mb-8">
+        <h2 className="text-xl font-bold text-white">GP Dashboard</h2>
+        <p className="text-zinc-500 text-xs mt-1">Admin Panel</p>
+      </div>
+      <nav className="space-y-1">
+        {links.map((link) => (
           <Link
-            key={item.href}
-            href={item.href}
-            className={`$s{pathname === item.href ? 'bg-accent-500': 'accent-300'} p-4 rounded`}
+            key={link.href}
+            href={link.href}
+            className={`block px-4 py-2.5 rounded-lg text-sm transition-colors ${
+              pathname === link.href
+                ? 'bg-lime-500/10 text-lime-400 font-medium'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+            }`}
           >
-            {item.name}
+            {link.label}
           </Link>
         ))}
       </nav>
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
+    </aside>
+  )
+}
