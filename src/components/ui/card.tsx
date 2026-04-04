@@ -1,13 +1,24 @@
-'use client'
+interface CardProps {
+  children: React.ReactNode
+  className?: string
+}
 
-)import React from 'react'
+export function Card({ children, className = '' }: CardProps) {
+  return (
+    <div className={'bg-zinc-900 border border-zinc-800 rounded-xl p-6 ' + className}>
+      {children}
+    </div>
+  )
+}
 
-export const Card = React.forwardRef<
-HTMLDivElement,React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={`rounded-lg border bg-white text-gray-900 shadow {className}`}
-    {...props}
-  />
-))
+export function CardHeader({ children, className = '' }: CardProps) {
+  return <div className={'mb-4 ' + className}>{children}</div>
+}
+
+export function CardTitle({ children, className = '' }: CardProps) {
+  return <h3 className={'text-lg font-semibold text-white ' + className}>{children}</h3>
+}
+
+export function CardContent({ children, className = '' }: CardProps) {
+  return <div className={className}>{children}</div>
+}

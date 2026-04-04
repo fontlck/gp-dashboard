@@ -1,22 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { signEd } from 'next-auth'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await signEd()
-
+    const session = await getServerSession(authOptions)
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const reports = await prisma.gpReport.findMany({
-      where: { userId: session.user?.id },
-    })
+    const totalBranches = await prisma.branch.count()
+    const totalPartners = await prisma.partner.count()
+    const salesRecords = await prisma.salesRecord.findMany()
+    const totalRevenue = salesRecords.reduce((sum, r) => sum + r.grossSales, 0)
 
-    return NextResponse.json(reports)
+    return NextResponse.json({
+      totalRevenue,
+      totalBranches,
+      totalPartners,
+      recentSales: salesRecords.slice(0, 10),
+    })
   } catch (error) {
-    console.error(error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
