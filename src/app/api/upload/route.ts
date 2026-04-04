@@ -6,6 +6,25 @@ import { authOptions } from '@/lib/auth'
 import { calculateNetSales, calculateVAT, calculatePartnerEarnings } from '@/lib/financial'
 import crypto from 'crypto'
 
+function findValue(row: Record<string, string>, keys: string[]): string {
+  for (const key of keys) {
+    const lower = key.toLowerCase()
+    for (const [k, v] of Object.entries(row)) {
+      if (k.toLowerCase() === lower || k.toLowerCase().replace(/[_\s-]/g, '') === lower.replace(/[_\s-]/g, '')) {
+        return v || ''
+      }
+    }
+  }
+  return ''
+}
+
+function parseNumber(val: string): number {
+  if (!val) return 0
+  const cleaned = val.replace(/[^0-9.\-]/g, '')
+  const num = parseFloat(cleaned)
+  return isNaN(num) ? 0 : num
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -21,7 +40,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     }
     if (!branchId) {
-      return NextResponse.json({ error: 'No branchId provided' }, { status: 400 })
+      return NextResponse.json({ error: 'No branch selected' }, { status: 400 })
     }
 
     const text = await file.text()
@@ -29,7 +48,7 @@ export async function POST(req: NextRequest) {
 
     const existingUpload = await prisma.csvUpload.findUnique({ where: { fileHash } })
     if (existingUpload) {
-      return NextResponse.json({ error: 'This file has already been uploaded' }, { status: 409 })
+      return NextResponse.json({ error: 'This file has already been uploaded (duplicate)' }, { status: 409 })
     }
 
     const branch = await prisma.branch.findUnique({
@@ -41,8 +60,12 @@ export async function POST(req: NextRequest) {
     }
 
     const { rows } = parseCSV(text)
+    if (rows.length === 0) {
+      return NextResponse.json({ error: 'CSV file is empty or has no data rows' }, { status: 400 })
+    }
+
     const totalGrossSales = rows.reduce((sum, row) => {
-      return sum + parseFloat(row['gross_sales'] || row['Gross Sales'] || '0')
+      return sum + parseNumber(findValue(row, ['gross_sales', 'Gross Sales', 'amount', 'Amount', 'total', 'Total', 'net', 'Net', 'charge_amount', 'Charge Amount']))
     }, 0)
 
     const csvUpload = await prisma.csvUpload.create({
@@ -63,9 +86,12 @@ export async function POST(req: NextRequest) {
 
     for (const row of rows) {
       try {
-        const grossSales = parseFloat(row['gross_sales'] || row['Gross Sales'] || '0')
-        const refunds = parseFloat(row['refunds'] || row['Refunds'] || '0')
-        const costOfGoods = parseFloat(row['cost_of_goods'] || row['Cost of Goods'] || '0')
+        const grossSales = parseNumber(findValue(row, ['gross_sales', 'Gross Sales', 'amount', 'Amount', 'total', 'Total', 'net', 'Net', 'charge_amount', 'Charge Amount']))
+        const refunds = parseNumber(findValue(row, ['refunds', 'Refunds', 'refund', 'Refund', 'refund_amount', 'Refund Amount']))
+        const costOfGoods = parseNumber(findValue(row, ['cost_of_goods', 'Cost of Goods', 'cost', 'Cost', 'cogs', 'COGS']))
+        const dateStr = findValue(row, ['date', 'Date', 'created_at', 'Created At', 'created', 'Created', 'transaction_date', 'Transaction Date', 'charged_at', 'Charged At'])
+        const orderId = findValue(row, ['order_id', 'Order ID', 'id', 'ID', 'charge_id', 'Charge ID', 'reference', 'Reference'])
+
         const netSales = calculateNetSales(grossSales, refunds)
         const grossProfit = netSales - costOfGoods
         const vatAmount = calculateVAT(grossProfit, isVatRegistered)
@@ -73,21 +99,29 @@ export async function POST(req: NextRequest) {
         const revenueShare = revenueSharePercent
         const partnerEarnings = calculatePartnerEarnings(netGP, revenueSharePercent)
 
+        let parsedDate: Date
+        try {
+          parsedDate = dateStr ? new Date(dateStr) : new Date()
+          if (isNaN(parsedDate.getTime())) parsedDate = new Date()
+        } catch {
+          parsedDate = new Date()
+        }
+
         await prisma.salesRecord.create({
           data: {
-            date: new Date(row['date'] || row['Date'] || new Date().toISOString()),
+            date: parsedDate,
             csvUploadId: csvUpload.id,
             branchId: branchId,
-            orderId: row['order_id'] || row['Order ID'] || null,
-            grossSales: grossSales,
-            refunds: refunds,
-            netSales: netSales,
-            costOfGoods: costOfGoods,
-            grossProfit: grossProfit,
-            vatAmount: vatAmount,
-            netGP: netGP,
-            revenueShare: revenueShare,
-            partnerEarnings: partnerEarnings,
+            orderId: orderId || null,
+            grossSales,
+            refunds,
+            netSales,
+            costOfGoods,
+            grossProfit,
+            vatAmount,
+            netGP,
+            revenueShare,
+            partnerEarnings,
           }
         })
         imported++
@@ -102,12 +136,12 @@ export async function POST(req: NextRequest) {
     })
 
     return NextResponse.json({
-      message: 'Imported ' + imported + ' records',
+      message: 'Imported ' + imported + ' of ' + rows.length + ' records successfully',
       count: imported,
       uploadId: csvUpload.id
     })
-  } catch (error) {
+  } catch (error: any) {
     console.error('Upload error:', error)
-    return NextResponse.json({ error: 'Upload failed' }, { status: 500 })
+    return NextResponse.json({ error: error.message || 'Upload failed' }, { status: 500 })
   }
 }
