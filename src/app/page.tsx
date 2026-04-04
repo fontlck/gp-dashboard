@@ -1,23 +1,19 @@
-import { getServerSession } from 'next-auth/next'
-import { redirect } from 'next/navigation'
+import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { redirect } from 'next/navigation'
 
-export default async function HomePage() {
+export default async function Home() {
   const session = await getServerSession(authOptions)
 
   if (!session) {
     redirect('/login')
   }
 
-  // Route based on user role
-  if (session.user?.role === 'ADMIN') {
+  const user = session.user as any
+
+  if (user?.role === 'ADMIN') {
     redirect('/dashboard')
   }
 
-  if (session.user?.role === 'PARTNER') {
-    redirect('/portal')
-  }
-
-  // Default redirect
-  redirect('/login')
+  redirect('/portal')
 }
