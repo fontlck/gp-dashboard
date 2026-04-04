@@ -1,9 +1,5 @@
-import { withAuth } from 'next-auth'
+export { default } from 'next-auth/middleware'
 
 export const config = {
-  callbacks: ['jwt'],
+  matcher: ['/dashboard/:path*', '/upload/:path*', '/branches/:path*', '/partners/:path*', '/reports/:path*', '/portal/:path*'],
 }
-
-export const {
-  auth: middleware,
-} = withAuth({ callbacks: ['jtw'] })
