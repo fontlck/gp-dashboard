@@ -1,7 +1,4 @@
 {
-	"buildCommand": "npm run build",
-	"outputDirectory": ".next",
-	"environment": {
-    "DATABASE_URL": "@githubaccount/database_url"
-  }
+  "buildCommand": "npx prisma generate && npm run build",
+  "outputDirectory": ".next"
 }
