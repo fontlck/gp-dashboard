@@ -1,8 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { DataTable } from 'A/components/ui/data-table'
-import { Button } from '@/components/ui/button'
 
 export default function ReportsPage() {
   const [reports, setReports] = useState<any[]>([])
@@ -10,164 +8,18 @@ export default function ReportsPage() {
   useEffect(() => {
     fetch('/api/dashboard')
       .then((res) => res.json())
-      .then(data => setReports(data))
-      .catch(error => console.error(\"Failed to fetch reports\", error))
+      .then((data) => setReports(Array.isArray(data) ? data : []))
+      .catch((err) => console.error(err))
   }, [])
 
   return (
-    <div className="space-y8" space="y-8">
-      <div className="flex justify-between aligns-center">
-        <h1 className="text-3xl font-bold">Reports</h1>
-        <Button>Create Report</Button>
+    <div className="space-y-8">
+      <div className="flex justify-between items-center">
+        <h1 className="text-3xl font-bold text-white">Reports</h1>
       </div>
-      <DataTable columns={"ID", "Name", "Date"} data={reports} />
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+        <p className="text-zinc-400">Reports will be displayed here once data is uploaded.</p>
+      </div>
+    </div>
+  )
+}

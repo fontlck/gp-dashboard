@@ -1,8 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { DataTable } from 'A/components/ui/data-table'
-import { Button } from '@/components/ui/button'
 
 export default function BranchesPage() {
   const [branches, setBranches] = useState<any[]>([])
@@ -10,164 +8,24 @@ export default function BranchesPage() {
   useEffect(() => {
     fetch('/api/branches')
       .then((res) => res.json())
-      .then(data => setBranches(data))
-      .catch(error => console.error(\"Failed to fetch branches\", error))
+      .then((data) => setBranches(Array.isArray(data) ? data : []))
+      .catch((err) => console.error(err))
   }, [])
 
   return (
-    <div className="space-y8" space="y-8">
-      <div className="flex justify-between aligns-center">
-        <h1 className="text-3xl font-bold">Branches</h1>
-        <Button>Add Branch</Button>
+    <div className="space-y-8">
+      <h1 className="text-3xl font-bold text-white">Branches</h1>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {branches.map((branch: any) => (
+          <div key={branch.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+            <h3 className="text-lg font-semibold text-white">{branch.name}</h3>
+            <p className="text-zinc-400 text-sm mt-1">{branch.code}</p>
+          </div>
+        ))}
+        {branches.length === 0 && (
+          <p className="text-zinc-400">No branches found. Upload CSV data first.</p>
+        )}
       </div>
-      <DataTable columns={["ID", "Name", "Location"]} data={branches} />
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
+    </div>
+  )
+}
