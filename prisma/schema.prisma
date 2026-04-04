@@ -1,0 +1,116 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id            String     @id @default(cuid())
+  email         String     @unique
+  password      String
+  name          String
+  role          UserRole   @default(PARTNER)
+  partner       Partner?
+  csvUploads    CsvUpload[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([email])
+}
+
+enum UserRole {
+  ADMIN
+  PARTNER
+}
+
+model Partner {
+  id              String        @id @default(cuid())
+  name            String
+  email           String        @unique
+  phone           String?
+  isVatRegistered Boolean       @default(false)
+  joinedAt        DateTime      @default(now())
+  userId          String        @unique
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branches        Branch[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([userId])
+}
+
+model Branch {
+  id                   String         @id @default(cuid())
+  name                 String
+  code                 String         @unique
+  partnerId            String
+  partner              Partner        @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  revenueSharePercent  Float
+  isActive             Boolean        @default(true)
+  salesRecords         SalesRecord[]
+  csvUploads           CsvUpload[]
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@index([partnerId])
+  @@index([code])
+}
+
+model CsvUpload {
+  id              String        @id @default(cuid())
+  fileName        String
+  fileHash        String        @unique
+  branchId        String
+  branch          Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  uploadedById    String
+  uploadedBy      User          @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  recordCount     Int
+  totalGrossSales Float
+  status          UploadStatus  @default(PROCESSING)
+  errorMessage    String?
+  salesRecords    SalesRecord[]
+  createdAt       DateTime      @default(now())
+
+  @@index([branchId])
+  @@index([uploadedById])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum UploadStatus {
+  PROCESSING
+  COMPLETED
+  FAILED
+  DUPLICATE
+}
+
+model SalesRecord {
+  id             String     @id @default(cuid())
+  date           DateTime
+  csvUploadId    String
+  csvUpload      CsvUpload  @relation(fields: [csvUploadId], references: [id], onDelete: Cascade)
+  branchId       String
+  branch         Branch     @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  orderId        String?
+  grossSales     Float
+  refunds        Float      @default(0)
+  netSales       Float
+  costOfGoods    Float      @default(0)
+  grossProfit    Float
+  vatAmount      Float      @default(0)
+  netGP          Float
+  revenueShare   Float
+  partnerEarnings Float
+  createdAt      DateTime   @default(now())
+
+  @@index([date])
+  @@index([branchId])
+  @@index([csvUploadId])
+}

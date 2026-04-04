@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRESQL_PATER_DB: dp postgres
+      POSTGRESQL_PATER_PASSWORD: password
+      POSTGRESQL_DATAEAFAMD•7MENAGER: postgres
+    ports:
+      - "5432:5432"
