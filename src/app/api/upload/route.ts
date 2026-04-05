@@ -8,9 +8,9 @@ import crypto from 'crypto'
 
 function findValue(row: Record<string, string>, keys: string[]): string {
   for (const key of keys) {
-    const lower = key.toLowerCase()
+    const lower = key.toLowerCase().replace(/[_\s-]/g, '')
     for (const [k, v] of Object.entries(row)) {
-      if (k.toLowerCase() === lower || k.toLowerCase().replace(/[_\s-]/g, '') === lower.replace(/[_\s-]/g, '')) {
+      if (k.toLowerCase().replace(/[_\s-]/g, '') === lower) {
         return v || ''
       }
     }
@@ -25,6 +25,18 @@ function parseNumber(val: string): number {
   return isNaN(num) ? 0 : num
 }
 
+function safeDate(dateStr: string): Date {
+  if (!dateStr) return new Date()
+  try {
+    const d = new Date(dateStr)
+    return isNaN(d.getTime()) ? new Date() : d
+  } catch {
+    return new Date()
+  }
+}
+
+export const maxDuration = 60
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -36,12 +48,8 @@ export async function POST(req: NextRequest) {
     const file = formData.get('file') as File
     const branchId = formData.get('branchId') as string
 
-    if (!file) {
-      return NextResponse.json({ error: 'No file provided' }, { status: 400 })
-    }
-    if (!branchId) {
-      return NextResponse.json({ error: 'No branch selected' }, { status: 400 })
-    }
+    if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
+    if (!branchId) return NextResponse.json({ error: 'No branch selected' }, { status: 400 })
 
     const text = await file.text()
     const fileHash = crypto.createHash('md5').update(text).digest('hex')
@@ -55,79 +63,74 @@ export async function POST(req: NextRequest) {
       where: { id: branchId },
       include: { partner: true }
     })
-    if (!branch) {
-      return NextResponse.json({ error: 'Branch not found' }, { status: 404 })
-    }
+    if (!branch) return NextResponse.json({ error: 'Branch not found' }, { status: 404 })
 
     const { rows } = parseCSV(text)
     if (rows.length === 0) {
       return NextResponse.json({ error: 'CSV file is empty or has no data rows' }, { status: 400 })
     }
 
-    const totalGrossSales = rows.reduce((sum, row) => {
-      return sum + parseNumber(findValue(row, ['gross_sales', 'Gross Sales', 'amount', 'Amount', 'total', 'Total', 'net', 'Net', 'charge_amount', 'Charge Amount']))
-    }, 0)
+    const revenueSharePercent = branch.revenueSharePercent
+    const isVatRegistered = branch.partner?.isVatRegistered || false
 
+    // Pre-compute all records in memory
+    const records: any[] = []
+    let totalGrossSales = 0
+
+    for (const row of rows) {
+      const grossSales = parseNumber(findValue(row, ['gross_sales', 'grosssales', 'amount', 'total', 'net', 'chargeamount', 'charge_amount']))
+      const refunds = parseNumber(findValue(row, ['refunds', 'refund', 'refundamount', 'refund_amount']))
+      const costOfGoods = parseNumber(findValue(row, ['costofgoods', 'cost_of_goods', 'cost', 'cogs']))
+      const dateStr = findValue(row, ['date', 'createdat', 'created_at', 'created', 'transactiondate', 'transaction_date', 'chargedat', 'charged_at'])
+      const orderId = findValue(row, ['orderid', 'order_id', 'id', 'chargeid', 'charge_id', 'reference'])
+
+      const netSales = calculateNetSales(grossSales, refunds)
+      const grossProfit = netSales - costOfGoods
+      const vatAmount = calculateVAT(grossProfit, isVatRegistered)
+      const netGP = grossProfit - vatAmount
+      const partnerEarnings = calculatePartnerEarnings(netGP, revenueSharePercent)
+
+      totalGrossSales += grossSales
+
+      records.push({
+        date: safeDate(dateStr),
+        branchId: branchId,
+        orderId: orderId || null,
+        grossSales,
+        refunds,
+        netSales,
+        costOfGoods,
+        grossProfit,
+        vatAmount,
+        netGP,
+        revenueShare: revenueSharePercent,
+        partnerEarnings,
+      })
+    }
+
+    // Create CsvUpload first
     const csvUpload = await prisma.csvUpload.create({
       data: {
         fileName: file.name,
-        fileHash: fileHash,
-        branchId: branchId,
+        fileHash,
+        branchId,
         uploadedById: (session.user as any).id,
         recordCount: rows.length,
-        totalGrossSales: totalGrossSales,
+        totalGrossSales,
         status: 'PROCESSING',
       }
     })
 
+    // Add csvUploadId to all records
+    const recordsWithUploadId = records.map(r => ({ ...r, csvUploadId: csvUpload.id }))
+
+    // Batch insert using createMany (much faster than individual creates)
+    const batchSize = 500
     let imported = 0
-    const revenueSharePercent = branch.revenueSharePercent
-    const isVatRegistered = branch.partner?.isVatRegistered || false
-
-    for (const row of rows) {
-      try {
-        const grossSales = parseNumber(findValue(row, ['gross_sales', 'Gross Sales', 'amount', 'Amount', 'total', 'Total', 'net', 'Net', 'charge_amount', 'Charge Amount']))
-        const refunds = parseNumber(findValue(row, ['refunds', 'Refunds', 'refund', 'Refund', 'refund_amount', 'Refund Amount']))
-        const costOfGoods = parseNumber(findValue(row, ['cost_of_goods', 'Cost of Goods', 'cost', 'Cost', 'cogs', 'COGS']))
-        const dateStr = findValue(row, ['date', 'Date', 'created_at', 'Created At', 'created', 'Created', 'transaction_date', 'Transaction Date', 'charged_at', 'Charged At'])
-        const orderId = findValue(row, ['order_id', 'Order ID', 'id', 'ID', 'charge_id', 'Charge ID', 'reference', 'Reference'])
-
-        const netSales = calculateNetSales(grossSales, refunds)
-        const grossProfit = netSales - costOfGoods
-        const vatAmount = calculateVAT(grossProfit, isVatRegistered)
-        const netGP = grossProfit - vatAmount
-        const revenueShare = revenueSharePercent
-        const partnerEarnings = calculatePartnerEarnings(netGP, revenueSharePercent)
-
-        let parsedDate: Date
-        try {
-          parsedDate = dateStr ? new Date(dateStr) : new Date()
-          if (isNaN(parsedDate.getTime())) parsedDate = new Date()
-        } catch {
-          parsedDate = new Date()
-        }
-
-        await prisma.salesRecord.create({
-          data: {
-            date: parsedDate,
-            csvUploadId: csvUpload.id,
-            branchId: branchId,
-            orderId: orderId || null,
-            grossSales,
-            refunds,
-            netSales,
-            costOfGoods,
-            grossProfit,
-            vatAmount,
-            netGP,
-            revenueShare,
-            partnerEarnings,
-          }
-        })
-        imported++
-      } catch (e) {
-        console.error('Row import error:', e)
-      }
+    for (let i = 0; i < recordsWithUploadId.length; i += batchSize) {
+      const batch = recordsWithUploadId.slice(i, i + batchSize)
+      const result = await prisma.salesRecord.createMany({ data: batch, skipDuplicates: true })
+      imported += result.count
     }
 
     await prisma.csvUpload.update({
