@@ -1,100 +1,131 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { parseCSV } from '@/lib/csv-parser'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { calculateNetSales, calculateVAT, calculatePartnerEarnings } from '@/lib/financial'
 import crypto from 'crypto'
 
-function findValue(row: Record<string, string>, keys: string[]): string {
-  for (const key of keys) {
-    const lower = key.toLowerCase().replace(/[_\s-]/g, '')
-    for (const [k, v] of Object.entries(row)) {
-      if (k.toLowerCase().replace(/[_\s-]/g, '') === lower) {
-        return v || ''
+export const maxDuration = 60
+
+function parseCSVLine(line: string): string[] {
+  const result: string[] = []
+  let current = ''
+  let inQuotes = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') {
+        current += '"'
+        i++
+      } else if (ch === '"') {
+        inQuotes = false
+      } else {
+        current += ch
+      }
+    } else {
+      if (ch === '"') {
+        inQuotes = true
+      } else if (ch === ',') {
+        result.push(current.trim())
+        current = ''
+      } else {
+        current += ch
       }
     }
+  }
+  result.push(current.trim())
+  return result
+}
+
+function parseOPNCSV(text: string): { headers: string[], rows: Record<string, string>[] } {
+  const lines = text.split('\n').filter(l => l.trim())
+  if (lines.length === 0) return { headers: [], rows: [] }
+  const headers = parseCSVLine(lines[0])
+  const rows: Record<string, string>[] = []
+  for (let i = 1; i < lines.length; i++) {
+    const values = parseCSVLine(lines[i])
+    const row: Record<string, string> = {}
+    headers.forEach((h, idx) => { row[h] = values[idx] || '' })
+    rows.push(row)
+  }
+  return { headers, rows }
+}
+
+function getCol(row: Record<string, string>, ...keys: string[]): string {
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== '') return row[key]
   }
   return ''
 }
 
-function parseNumber(val: string): number {
+function parseNum(val: string): number {
   if (!val) return 0
-  const cleaned = val.replace(/[^0-9.\-]/g, '')
-  const num = parseFloat(cleaned)
-  return isNaN(num) ? 0 : num
+  const n = parseFloat(val.replace(/[^0-9.\-]/g, ''))
+  return isNaN(n) ? 0 : n
 }
 
-function safeDate(dateStr: string): Date {
-  if (!dateStr) return new Date()
-  try {
-    const d = new Date(dateStr)
-    return isNaN(d.getTime()) ? new Date() : d
-  } catch {
-    return new Date()
-  }
+function safeDate(s: string): Date {
+  if (!s) return new Date()
+  try { const d = new Date(s); return isNaN(d.getTime()) ? new Date() : d } catch { return new Date() }
 }
-
-export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const formData = await req.formData()
     const file = formData.get('file') as File
     const branchId = formData.get('branchId') as string
-
     if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     if (!branchId) return NextResponse.json({ error: 'No branch selected' }, { status: 400 })
 
     const text = await file.text()
     const fileHash = crypto.createHash('md5').update(text).digest('hex')
 
-    const existingUpload = await prisma.csvUpload.findUnique({ where: { fileHash } })
-    if (existingUpload) {
-      return NextResponse.json({ error: 'This file has already been uploaded (duplicate)' }, { status: 409 })
-    }
+    const existing = await prisma.csvUpload.findUnique({ where: { fileHash } })
+    if (existing) return NextResponse.json({ error: 'Duplicate file - already uploaded' }, { status: 409 })
 
-    const branch = await prisma.branch.findUnique({
-      where: { id: branchId },
-      include: { partner: true }
-    })
+    const branch = await prisma.branch.findUnique({ where: { id: branchId }, include: { partner: true } })
     if (!branch) return NextResponse.json({ error: 'Branch not found' }, { status: 404 })
 
-    const { rows } = parseCSV(text)
-    if (rows.length === 0) {
-      return NextResponse.json({ error: 'CSV file is empty or has no data rows' }, { status: 400 })
-    }
+    const { headers: csvHeaders, rows } = parseOPNCSV(text)
+    if (rows.length === 0) return NextResponse.json({ error: 'CSV has no data rows' }, { status: 400 })
 
-    const revenueSharePercent = branch.revenueSharePercent
-    const isVatRegistered = branch.partner?.isVatRegistered || false
+    const isOPN = csvHeaders.includes('livemode') || csvHeaders.includes('funding_amount')
+    const revShare = branch.revenueSharePercent
+    const isVat = branch.partner?.isVatRegistered || false
 
-    // Pre-compute all records in memory
     const records: any[] = []
-    let totalGrossSales = 0
+    let totalGross = 0
 
     for (const row of rows) {
-      const grossSales = parseNumber(findValue(row, ['gross_sales', 'grosssales', 'amount', 'total', 'net', 'chargeamount', 'charge_amount']))
-      const refunds = parseNumber(findValue(row, ['refunds', 'refund', 'refundamount', 'refund_amount']))
-      const costOfGoods = parseNumber(findValue(row, ['costofgoods', 'cost_of_goods', 'cost', 'cogs']))
-      const dateStr = findValue(row, ['date', 'createdat', 'created_at', 'created', 'transactiondate', 'transaction_date', 'chargedat', 'charged_at'])
-      const orderId = findValue(row, ['orderid', 'order_id', 'id', 'chargeid', 'charge_id', 'reference'])
+      let grossSales: number, refunds: number, costOfGoods: number, dateStr: string, orderId: string
+
+      if (isOPN) {
+        grossSales = parseNum(getCol(row, 'amount'))
+        refunds = parseNum(getCol(row, 'refunded_amount'))
+        costOfGoods = parseNum(getCol(row, 'fee')) + parseNum(getCol(row, 'fee_vat'))
+        dateStr = getCol(row, 'created_at')
+        orderId = getCol(row, 'id')
+      } else {
+        grossSales = parseNum(getCol(row, 'gross_sales', 'Gross Sales', 'amount', 'Amount', 'total', 'Total'))
+        refunds = parseNum(getCol(row, 'refunds', 'Refunds', 'refund_amount'))
+        costOfGoods = parseNum(getCol(row, 'cost_of_goods', 'Cost of Goods', 'cost', 'cogs'))
+        dateStr = getCol(row, 'date', 'Date', 'created_at', 'transaction_date')
+        orderId = getCol(row, 'order_id', 'Order ID', 'id', 'reference')
+      }
 
       const netSales = calculateNetSales(grossSales, refunds)
       const grossProfit = netSales - costOfGoods
-      const vatAmount = calculateVAT(grossProfit, isVatRegistered)
+      const vatAmount = calculateVAT(grossProfit, isVat)
       const netGP = grossProfit - vatAmount
-      const partnerEarnings = calculatePartnerEarnings(netGP, revenueSharePercent)
-
-      totalGrossSales += grossSales
+      const partnerEarnings = calculatePartnerEarnings(netGP, revShare)
+      totalGross += grossSales
 
       records.push({
         date: safeDate(dateStr),
-        branchId: branchId,
+        branchId,
         orderId: orderId || null,
         grossSales,
         refunds,
@@ -103,45 +134,36 @@ export async function POST(req: NextRequest) {
         grossProfit,
         vatAmount,
         netGP,
-        revenueShare: revenueSharePercent,
+        revenueShare: revShare,
         partnerEarnings,
       })
     }
 
-    // Create CsvUpload first
     const csvUpload = await prisma.csvUpload.create({
       data: {
-        fileName: file.name,
-        fileHash,
-        branchId,
+        fileName: file.name, fileHash, branchId,
         uploadedById: (session.user as any).id,
-        recordCount: rows.length,
-        totalGrossSales,
+        recordCount: rows.length, totalGrossSales: totalGross,
         status: 'PROCESSING',
       }
     })
 
-    // Add csvUploadId to all records
-    const recordsWithUploadId = records.map(r => ({ ...r, csvUploadId: csvUpload.id }))
-
-    // Batch insert using createMany (much faster than individual creates)
-    const batchSize = 500
+    const withId = records.map(r => ({ ...r, csvUploadId: csvUpload.id }))
     let imported = 0
-    for (let i = 0; i < recordsWithUploadId.length; i += batchSize) {
-      const batch = recordsWithUploadId.slice(i, i + batchSize)
-      const result = await prisma.salesRecord.createMany({ data: batch, skipDuplicates: true })
-      imported += result.count
+    for (let i = 0; i < withId.length; i += 500) {
+      const batch = withId.slice(i, i + 500)
+      const res = await prisma.salesRecord.createMany({ data: batch, skipDuplicates: true })
+      imported += res.count
     }
 
-    await prisma.csvUpload.update({
-      where: { id: csvUpload.id },
-      data: { status: 'COMPLETED' }
-    })
+    await prisma.csvUpload.update({ where: { id: csvUpload.id }, data: { status: 'COMPLETED' } })
 
     return NextResponse.json({
-      message: 'Imported ' + imported + ' of ' + rows.length + ' records successfully',
+      message: 'Imported ' + imported + ' of ' + rows.length + ' records',
       count: imported,
-      uploadId: csvUpload.id
+      uploadId: csvUpload.id,
+      detected: isOPN ? 'OPN Payments format' : 'Generic CSV format',
+      columns: csvHeaders.slice(0, 10),
     })
   } catch (error: any) {
     console.error('Upload error:', error)
