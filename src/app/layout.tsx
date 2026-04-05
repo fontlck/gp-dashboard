@@ -1,25 +1,33 @@
-import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
-import './globals.css'
-import { Providers } from './providers'
-
-const inter = Inter({ subsets: ['latin'] })
+import type { Metadata } from 'next';
+import { SessionProvider } from 'next-auth/react';
+import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'GP Dashboard',
-  description: 'Multi-branch Sales Report Dashboard',
-}
+  title: 'GP Dashboard - Premium Sales Analytics',
+  description:
+    'Advanced sales reporting and partner management dashboard with real-time analytics',
+  viewport: {
+    width: 'device-width',
+    initialScale: 1,
+    maximumScale: 1,
+  },
+  icons: {
+    icon: '/favicon.ico',
+  },
+};
 
 export default function RootLayout({
   children,
 }: {
-  children: React.ReactNode
+  children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
-      <body className={inter.className + ' bg-[#0a0a0a] text-white antialiased'}>
-        <Providers>{children}</Providers>
+    <html lang="en" suppressHydrationWarning>
+      <body>
+        <SessionProvider>
+          {children}
+        </SessionProvider>
       </body>
     </html>
-  )
+  );
 }

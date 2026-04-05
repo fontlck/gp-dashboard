@@ -1,26 +1,19 @@
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
-import { redirect } from 'next/navigation'
-import Link from 'next/link'
+import React from 'react';
+import { Sidebar } from '@/components/layout/sidebar';
 
-export default async function PartnerLayout({ children }: { children: React.ReactNode }) {
-  const session = await getServerSession(authOptions)
-
-  if (!session) {
-    redirect('/login')
-  }
-
+export default function PartnerLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
-    <div className="min-h-screen bg-[#0a0a0a]">
-      <nav className="border-b border-zinc-800 bg-zinc-900/50 backdrop-blur">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
-          <Link href="/portal" className="text-xl font-bold text-white">
-            GP Dashboard
-          </Link>
-          <span className="text-zinc-400 text-sm">{session.user?.name || session.user?.email}</span>
+    <div className="flex h-screen bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950">
+      <Sidebar />
+      <main className="flex-1 md:ml-64 overflow-y-auto bg-gradient-to-br from-zinc-950 to-black">
+        <div className="p-4 md:p-8">
+          {children}
         </div>
-      </nav>
-      <main className="max-w-7xl mx-auto px-6 py-8">{children}</main>
+      </main>
     </div>
-  )
+  );
 }
